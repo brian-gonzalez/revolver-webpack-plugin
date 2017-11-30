@@ -1,0 +1,13 @@
+*.iml
+*.log*
+*.swo
+*.swp
+.DS_Store
+.metadata
+.settings/
+
+# ignore all .tern-project files except at root level
+.tern-project
+!/.tern-project
+
+node_modules
