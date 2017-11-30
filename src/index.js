@@ -2,7 +2,8 @@
  * Lifting functionality from https://www.npmjs.com/package/customization-resolver-webpack-plugin to allow overriding relative paths from a list of directories.
  */
 
-const fs = require('fs');
+const fs    = require('fs');
+const path  = require('path');
 
 function revolverPlugin (config) {
     let {directoryList, excludePath, excludeRequest, jsFileExtension} = config;
@@ -14,10 +15,10 @@ function revolverPlugin (config) {
 }
 
 revolverPlugin.prototype.apply = function apply (resolver) {
-    const directoryList 	= this.directoryList;
-    const excludePath 		= this.excludePath;
-    const excludeRequest 	= this.excludeRequest;
-    const jsFileExtension 	= this.jsFileExtension;
+    const directoryList     = this.directoryList;
+    const excludePath       = this.excludePath;
+    const excludeRequest    = this.excludeRequest;
+    const jsFileExtension   = this.jsFileExtension;
 
     resolver.plugin('before-new-resolve', function resolverPlugin (request, finalCallback) {
         if (!(request.request.startsWith('./') || request.request.startsWith('../')) || request.path.match(excludePath) || request.request.match(excludeRequest)) {
@@ -38,15 +39,17 @@ revolverPlugin.prototype.apply = function apply (resolver) {
             return this.doResolve('parsed-resolve', parsedResult, `found file: ${resolutionMsg}`, finalCallback);
         };
 
-        const getFile = (path, fileName) => {
-        	let fullFileName = this.join(path, fileName);
+        const getFile = (filePath, fileName) => {
+            let fullFileName = this.join(filePath, fileName),
+                hasExtension = path.extname(fullFileName),
+                fileExtension = hasExtension ? '' : jsFileExtension;
 
-        	//If this path has an /index file, use that instead. This might not be the best way to do this...
-        	if (fs.existsSync(fullFileName + '/index' + jsFileExtension)) {
-        		fullFileName = fullFileName + '/index';
-        	}
+            //If this fullFileName has an /index file, use that instead. This might not be the best way to do this...
+            if (!hasExtension && fs.existsSync(fullFileName + '/index' + fileExtension)) {
+                fullFileName = fullFileName + '/index';
+            }
 
-            return `${fullFileName}${jsFileExtension}`;
+            return `${fullFileName}${fileExtension}`;
         };
 
         /**
@@ -57,12 +60,12 @@ revolverPlugin.prototype.apply = function apply (resolver) {
          * @return {[null || Function]}         [description]
          */
         const walkDirectories = (directoryList, subDir, index) => {
-        	let currIndex = index || 0,
-        		nextIndex = currIndex + 1,
-        		newPath = this.join(directoryList[currIndex], subDir),
-        		newFile = getFile(newPath, request.request);
+            let currIndex = index || 0,
+                nextIndex = currIndex + 1,
+                newPath = this.join(directoryList[currIndex], subDir),
+                newFile = getFile(newPath, request.request);
 
-	        fs.stat(newFile, (err, stat) => {
+            fs.stat(newFile, (err, stat) => {
 
                 if (!err && stat && stat.isFile()) {
                     // found, use it
@@ -71,31 +74,31 @@ revolverPlugin.prototype.apply = function apply (resolver) {
 
                 //Recursively attempt to resolve the files following the directory list [directoryList] order.
                 if (directoryList[nextIndex]) {
-                	walkDirectories(directoryList, subDir, nextIndex);
+                    walkDirectories(directoryList, subDir, nextIndex);
                 }
 
                 else {
-                	// nothing worked, lets other plugins try
-                	return finalCallback();
+                    // nothing worked, lets other plugins try
+                    return finalCallback();
                 }
 
-	            return null;
-	        });
+                return null;
+            });
         };
 
         let subDir = null;
 
-	    //Gets the subdirectory of the source by substracting the current source from the request path.
+        //Gets the subdirectory of the source by substracting the current source from the request path.
         for (let i = 0; i < directoryList.length; i++) {
-        	if (request.path.startsWith(directoryList[i])) {
-        		subDir = request.path.substring(directoryList[i].length + 1);
+            if (request.path.startsWith(directoryList[i])) {
+                subDir = request.path.substring(directoryList[i].length + 1);
 
-        		break;
-        	}
+                break;
+            }
         };
 
         if (subDir === null) {
-        	return finalCallback();
+            return finalCallback();
         }
 
         walkDirectories(directoryList, subDir);
