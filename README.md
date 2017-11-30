@@ -5,9 +5,9 @@
 
 ## Information
 
-Webpack doesn't natively support changing the source directory of your files when including them using require() or import. This plugin allows to specify a list of directories that Webpack should read from before trying to resolve relative paths.
+Webpack doesn't natively support changing the source directory of your files when including them using require() or import. This plugin allows to specify a list of directories that Webpack should read from before trying to resolve relative paths. Think of it as a fallback system.
 
-This is useful when you need to resolve relative files from different directories, but only if these files are available on said directory or directories, and [resolve.alias](https://webpack.js.org/configuration/resolve/#resolve-alias) or [resolve.modules](https://webpack.js.org/configuration/resolve/#resolve-modules) won't work for your use case.
+This is useful when you need to resolve relative files from different directories, but only if these files are available on said directory or directories, like when working with different themes or locales for a site and [resolve.alias](https://webpack.js.org/configuration/resolve/#resolve-alias) or [resolve.modules](https://webpack.js.org/configuration/resolve/#resolve-modules) won't work for your use case.
 
 Let's say you have a build that uses the following configuration on your source directory:
 ```js
@@ -62,6 +62,9 @@ let webpackConfig = {
 
 * `jsFileExtension` String: file extension (with the dot) which gets added to file names without a file extension. Defaults to '.js'. Note: When requiring or importing a directory, this plugin will resort to default Webpack behavior, which is to look for an /index.{extension} file inside of said directory.
 
+## References
+
+Based off the greatly coded [customization-resolver-webpack-plugin](https://www.npmjs.com/package/customization-resolver-webpack-plugin). Enhanced its functionality such as adding the option for multiple directories, requiring a file from subdirectories (i.e. require(./path/to/file)), and requiring a directory (i.e. require(./path/to/dir), which then would attempt to load its index file if found).
 
 ## License
 
