@@ -21,29 +21,10 @@ class RevolverPlugin {
 
         self.resolver.getHook('before-resolve').tapAsync('RevolverPlugin', (requestContext, resolveContext, callback) => {
             let isRelativePath = requestContext.request.startsWith('./') || requestContext.request.startsWith('../'),
-                //Only retrieve these values if `isRelativePath` is false in order to avoid unnecessary processing.
-                specificPath = !isRelativePath ? self.getMatchingContainer(requestContext) : false,
                 subDir;
 
-            if (!(isRelativePath || specificPath) || requestContext.path.match(self.excludePath) || requestContext.request.match(self.excludeRequest)) {
+            if (!isRelativePath || requestContext.path.match(self.excludePath) || requestContext.request.match(self.excludeRequest)) {
                 return callback();
-            }
-
-            if (specificPath) {
-                let specificFile = self.getFullFilePath(specificPath.path, requestContext.request);
-
-                fs.stat(specificFile, (err, stat) => {
-
-                    if (!err && stat && stat.isFile()) {
-                        // found, use it
-                        return self.resolveRequest(specificPath.path, requestContext, resolveContext, callback);
-                    }
-
-                    // nothing worked, let's other plugins try
-                    return callback();
-                });
-
-                return null;
             }
 
             subDir = self.getSubdirectory(requestContext);
