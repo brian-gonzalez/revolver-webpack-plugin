@@ -1,6 +1,6 @@
 {
   "name": "revolver-webpack-plugin",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Webpack resolver plugin to load relative paths from a different directory or directories.",
   "main": "src/index.js",
   "repository": {
