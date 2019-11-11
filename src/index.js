@@ -10,7 +10,8 @@ class RevolverPlugin {
         this.directoryList = typeof options.directoryList === 'string' ? [options.directoryList] : options.directoryList;
         this.excludePath = options.excludePath || 'node_modules';
         this.excludeRequest = options.excludeRequest || 'node_modules';
-        this.jsFileExtension = options.jsFileExtension || '.js';
+        this.fileExtension = options.fileExtension || '.js';
+        this.nextDirectoryPrefix = options.nextDirectoryPrefix || '*/';
     }
 
     apply(resolver) {
@@ -20,20 +21,28 @@ class RevolverPlugin {
         self.resolver = resolver;
 
         self.resolver.getHook('before-resolve').tapAsync('RevolverPlugin', (requestContext, resolveContext, callback) => {
-            let isRelativePath = requestContext.request.startsWith('./') || requestContext.request.startsWith('../'),
-                subDir;
+            let isRelativePath = requestContext.request.startsWith(self.nextDirectoryPrefix) || requestContext.request.startsWith('./') || requestContext.request.startsWith('../'),
+                directoryData,
+                index = 0;
 
             if (!isRelativePath || requestContext.path.match(self.excludePath) || requestContext.request.match(self.excludeRequest)) {
                 return callback();
             }
 
-            subDir = self.getSubdirectory(requestContext);
+            directoryData = self.getDirectoryData(requestContext);
 
-            if (subDir === null) {
+            if (!directoryData) {
                 return callback();
             }
 
-            self.walkDirectories({subDir: subDir, requestContext: requestContext, resolveContext: resolveContext}, callback);
+            //Starting a file with `*/` indicates that it should look for the file on the next directory in line, as opposed to going through the entire `directoryList`.
+            //This is useful to chain files with the same name and location without needing to specify the base directory name or alias.
+            if (requestContext.request.startsWith(self.nextDirectoryPrefix)) {
+                index = directoryData.index + 1;
+                requestContext.request = requestContext.request.replace(self.nextDirectoryPrefix, './');
+            }
+
+            self.walkDirectories({requestContext, resolveContext, directoryData, index}, callback);
 
             return null;
         });
@@ -46,9 +55,9 @@ class RevolverPlugin {
         let result = Object.assign({}, requestContext, {
                 path: targetPath,
             }),
-            // we skip 'new-resolve' so we must do the work of this step: parse
-            // requestContext.request and add it to request. This seems the only way
-            // to do the resolution without get caught in a infinite loop.
+
+            // Parse `requestContext.request` and add it to request.
+            // This seems the only way to do the resolution without get caught in a infinite loop.
             parsed = this.resolver.parse(result.request),
             parsedResult = Object.assign({}, result, parsed);
 
@@ -57,7 +66,7 @@ class RevolverPlugin {
 
     /**
      * Loops through the directory list [directoryList] and attempts to resolve the requests into the absolute path of the current directory.  
-     * @param  {[String]} subDir  [description]
+     * @param  {[String]} directoryData  [description]
      * @param  {[Integer]} index   [description]
      * @return {[null || Function]}         [description]
      */
@@ -65,13 +74,12 @@ class RevolverPlugin {
         let self = this,
             currIndex = options.index || 0,
             nextIndex = currIndex + 1,
-            newPath = path.join(self.directoryList[currIndex].path, options.subDir),
+            newPath = path.join(self.directoryList[currIndex].path, options.directoryData.subDirectory),
             newFile = self.getFullFilePath(newPath, options.requestContext.request);
 
         fs.stat(newFile, (err, stat) => {
-
+            // found, use it
             if (!err && stat && stat.isFile()) {
-                // found, use it
                 return self.resolveRequest(newPath, options.requestContext, options.resolveContext, callback);
             }
 
@@ -90,30 +98,12 @@ class RevolverPlugin {
     }
 
     /**
-     * Loops through `directoryList` until a starting match in the `requestContext.request` is found.
-     * This helps determine where to look for in case a specific parent directory name is used from the revolverPath.
-     */
-    getMatchingContainer(requestContext) {
-        for (let i = 0; i < this.directoryList.length; i++) {
-            if (requestContext.request.startsWith(`${this.directoryList[i].name}/`)) {
-                //Maybe this should be moved to `resolveRequest`.
-                //Renames the `requestContext.request` value to remove the directory container name.
-                requestContext.request = requestContext.request.replace(`${this.directoryList[i].name}/`, './');
-
-                return this.directoryList[i];
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * Returns a concatenated file path name, this is later used to determine if the file exists before attempting to resolve it.
      */
     getFullFilePath(filePath, fileName) {
         let fullFileName = path.join(filePath, fileName),
             hasExtension = path.extname(fullFileName),
-            fileExtension = hasExtension ? '' : this.jsFileExtension;
+            fileExtension = hasExtension ? '' : this.fileExtension;
 
         //If this fullFileName has an /index file, use that instead. This might not be the best way to do this...
         if (!hasExtension && fs.existsSync(fullFileName + '/index' + fileExtension)) {
@@ -124,12 +114,18 @@ class RevolverPlugin {
     }
 
     /**
-     * Gets the subdirectory of the source by substracting the current source from the `requestContext.path`.
+     * Gets the directory data off the source by looping through `this.directoryList` and comparing each item with the `requestContext.path`.
      */
-    getSubdirectory(requestContext) {
+    getDirectoryData(requestContext) {
         for (let i = 0; i < this.directoryList.length; i++) {
-            if (requestContext.path.startsWith(this.directoryList[i].path)) {
-                return requestContext.path.substring(this.directoryList[i].path.length + 1);
+            let directoryPath = this.directoryList[i].path || this.directoryList[i];
+
+            if (requestContext.path.startsWith(directoryPath)) {
+                return {
+                    index: i,
+                    name: this.directoryList[i].name || directoryPath,
+                    subDirectory: requestContext.path.substring(directoryPath.length + 1)
+                }
             }
         }
 
