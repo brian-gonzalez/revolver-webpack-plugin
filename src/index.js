@@ -102,11 +102,12 @@ class RevolverPlugin {
      */
     getFullFilePath(filePath, fileName) {
         let fullFileName = path.join(filePath, fileName),
-            hasExtension = path.extname(fullFileName),
-            fileExtension = hasExtension ? '' : this.fileExtension;
+            currentExtension = path.extname(fullFileName),
+            matchesAllowedExtension = currentExtension && this.fileExtension.indexOf(currentExtension) !== -1,
+            fileExtension = matchesAllowedExtension ? '' : this.fileExtension;
 
         //If this fullFileName has an /index file, use that instead. This might not be the best way to do this...
-        if (!hasExtension && fs.existsSync(fullFileName + '/index' + fileExtension)) {
+        if (!currentExtension && fs.existsSync(fullFileName + '/index' + fileExtension)) {
             fullFileName = fullFileName + '/index';
         }
 
