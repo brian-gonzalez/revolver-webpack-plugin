@@ -12,15 +12,16 @@ class RevolverPlugin {
         this.excludeRequest = options.excludeRequest || 'node_modules';
         this.fileExtension = options.fileExtension || '.js';
         this.nextDirectoryPrefix = options.nextDirectoryPrefix || '*/';
+        this.mainFileName = options.mainFileName || '/index';
     }
 
     apply(resolver) {
         const self = this;
 
-        self.resolvedHook = resolver.ensureHook('parsed-resolve');
-        self.resolver = resolver;
+        this.resolvedHook = resolver.ensureHook('parsed-resolve');
+        this.resolver = resolver;
 
-        self.resolver.getHook('before-resolve').tapAsync('RevolverPlugin', (requestContext, resolveContext, callback) => {
+        this.resolver.getHook('before-resolve').tapAsync('RevolverPlugin', (requestContext, resolveContext, callback) => {
             let isRelativePath = requestContext.request.startsWith(self.nextDirectoryPrefix) || requestContext.request.startsWith('./') || requestContext.request.startsWith('../'),
                 directoryData,
                 index = 0;
@@ -49,17 +50,22 @@ class RevolverPlugin {
     }
 
     /**
-     * Resolves the request using the matched `requestContext.request` file found within `targetPath`.
+     * Resolves the request using the matched `requestContext.request` file found within `requestPathData`.
      */
-    resolveRequest(targetPath, requestContext, resolveContext, callback, resolutionMsg = 'source file') {
+    resolveRequest(requestPathData, requestContext, resolveContext, callback, newFile, resolutionMsg = 'source file') {
         let result = Object.assign({}, requestContext, {
-                path: targetPath,
+                path: requestPathData.fullDirPath,
             }),
 
             // Parse `requestContext.request` and add it to request.
             // This seems the only way to do the resolution without get caught in a infinite loop.
             parsed = this.resolver.parse(result.request),
             parsedResult = Object.assign({}, result, parsed);
+
+        //Circumvent Webpack 5.x's change which will not resolve requests that point to directories with main files.
+        if (requestPathData.hasMainFile) {
+            parsedResult.request = parsedResult.request + this.mainFileName;
+        }
 
         return this.resolver.doResolve(this.resolvedHook, parsedResult, `Match found: ${resolutionMsg}`, resolveContext, callback);
     }
@@ -74,13 +80,12 @@ class RevolverPlugin {
         let self = this,
             currIndex = options.index || 0,
             nextIndex = currIndex + 1,
-            newPath = path.join(self.directoryList[currIndex].path, options.directoryData.subDirectory),
-            newFile = self.getFullFilePath(newPath, options.requestContext.request);
+            requestPathData = this.getRequestPathData(this.directoryList[currIndex].path, options.directoryData.subDirectory, options.requestContext.request);
 
-        fs.stat(newFile, (err, stat) => {
+        fs.stat(requestPathData.fullFilePath, (err, stat) => {
             // found, use it
             if (!err && stat && stat.isFile()) {
-                return self.resolveRequest(newPath, options.requestContext, options.resolveContext, callback);
+                return self.resolveRequest(requestPathData, options.requestContext, options.resolveContext, callback);
             }
 
             //Recursively attempt to resolve the files following the directory list `self.directoryList` order.
@@ -89,7 +94,7 @@ class RevolverPlugin {
 
                 self.walkDirectories(options, callback);
             } else {
-                // nothing worked, let's other plugins try
+                // nothing worked, lets other plugins try.
                 return callback();
             }
 
@@ -98,20 +103,22 @@ class RevolverPlugin {
     }
 
     /**
-     * Returns a concatenated file path name, this is later used to determine if the file exists before attempting to resolve it.
+     * Returns all path data that can be determined from the currently requested file.
+     * This information is later used to determine if the file exists before attempting to resolve it,
+     * and also to resolve the target file and continue the chain.
      */
-    getFullFilePath(filePath, fileName) {
-        let fullFileName = path.join(filePath, fileName),
-            currentExtension = path.extname(fullFileName),
-            matchesAllowedExtension = currentExtension && this.fileExtension.indexOf(currentExtension) !== -1,
-            fileExtension = matchesAllowedExtension ? '' : this.fileExtension;
+    getRequestPathData(baseDir, subDir, fileName) {
+        let fullDirPath = path.join(baseDir, subDir),
+            fullFilePath = path.join(fullDirPath, fileName),
+            currentExt = path.extname(fullFilePath),
+            hasValidExt = currentExt && this.fileExtension.indexOf(currentExt) !== -1,
+            effectiveExt = hasValidExt ? '' : this.fileExtension,
+            hasMainFile = !currentExt && fs.existsSync(fullFilePath + this.mainFileName + effectiveExt);
 
-        //If this fullFileName has an /index file, use that instead. This might not be the best way to do this...
-        if (!currentExtension && fs.existsSync(fullFileName + '/index' + fileExtension)) {
-            fullFileName = fullFileName + '/index';
-        }
+        //If this fullFilePath has an /index file, use that instead. This might not be the best way to do this...
+        fullFilePath = (hasMainFile ? (fullFilePath + this.mainFileName) : fullFilePath) + effectiveExt;
 
-        return `${fullFileName}${fileExtension}`;
+        return {fullDirPath, fullFilePath, hasMainFile};
     }
 
     /**
@@ -119,13 +126,13 @@ class RevolverPlugin {
      */
     getDirectoryData(requestContext) {
         for (let i = 0; i < this.directoryList.length; i++) {
-            let directoryPath = this.directoryList[i].path || this.directoryList[i];
+            let currentDirPath = this.directoryList[i].path || this.directoryList[i];
 
-            if (requestContext.path.startsWith(directoryPath)) {
+            if (requestContext.path.startsWith(currentDirPath)) {
                 return {
                     index: i,
-                    name: this.directoryList[i].name || directoryPath,
-                    subDirectory: requestContext.path.substring(directoryPath.length + 1)
+                    name: this.directoryList[i].name || currentDirPath,
+                    subDirectory: requestContext.path.substring(currentDirPath.length + 1)
                 }
             }
         }
